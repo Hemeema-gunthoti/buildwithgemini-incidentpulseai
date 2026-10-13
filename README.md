@@ -15,6 +15,8 @@ IncidentPulse AI is a real-time, autonomous Site Reliability Engineering (SRE) w
 
 Watch the complete 2-minute autonomous incident response demonstration:
 
+![IncidentPulse AI Live War-Room Demo](demo.gif)
+
 - **Full Demo Video Recording:** [`demo_recording.mp4`](demo_recording.mp4)
 - **Demo Production Package & Script:** [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md)
 

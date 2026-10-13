@@ -1,5 +1,111 @@
 [
   {
+    "id": "INC-629168",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:43:49.168Z",
+    "detectedAt": "2026-10-13T09:43:49.168Z",
+    "mitigatedAt": "2026-10-13T09:44:09.859Z",
+    "mttdSeconds": 16,
+    "mttmSeconds": 20,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": {
+      "id": "rb-stripe-cascade-mitigation",
+      "title": "P1 Payment Gateway Cascade Mitigation Runbook",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "title": "Enable Secondary Gateway Fallback Route",
+          "command": "kubectl patch configmap payment-routing-config --patch '{\"data\":{\"PRIMARY_GATEWAY\":\"ADYEN\",\"STRIPE_CIRCUIT_BREAKER\":\"FORCED_OPEN\"}}'",
+          "explanation": "Forces traffic to route through secondary payment provider while Stripe resolves upstream issues."
+        },
+        {
+          "stepNumber": 2,
+          "title": "Expand Payment HTTP Connection Pool Limit",
+          "command": "kubectl set env deployment/payment-service HTTP_POOL_MAX_CONNECTIONS=250 HTTP_SOCKET_TIMEOUT_MS=3000",
+          "explanation": "Increases socket pool headroom and lowers read timeout from 10s to 3s to prevent thread blocking."
+        },
+        {
+          "stepNumber": 3,
+          "title": "Scale Out Checkout API Replicas",
+          "command": "kubectl scale deployment checkout-api --replicas=8",
+          "explanation": "Absorbs queued worker backlog and restores sub-100ms request handling."
+        },
+        {
+          "stepNumber": 4,
+          "title": "Drain Dead-Letter Retry Queue",
+          "command": "curl -X POST http://payment-service.internal/admin/dlq/replay?batch_size=100",
+          "explanation": "Replays dropped transaction intents through the secondary gateway without double-charging."
+        }
+      ],
+      "diff": "--- payment-config.yaml (live)\n+++ payment-config.yaml (proposed)\n@@ -12,4 +12,4 @@\n-PRIMARY_GATEWAY: STRIPE\n-STRIPE_CIRCUIT_BREAKER: AUTOMATIC\n-HTTP_POOL_MAX_CONNECTIONS: 50\n-HTTP_SOCKET_TIMEOUT_MS: 10000\n+PRIMARY_GATEWAY: ADYEN\n+STRIPE_CIRCUIT_BREAKER: FORCED_OPEN\n+HTTP_POOL_MAX_CONNECTIONS: 250\n+HTTP_SOCKET_TIMEOUT_MS: 3000"
+    },
+    "timeline": [
+      {
+        "id": "evt-1791884629168",
+        "timestamp": "2026-10-13T09:43:49.168Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791884630326",
+        "timestamp": "2026-10-13T09:43:50.326Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791884632139",
+        "timestamp": "2026-10-13T09:43:52.139Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791884633361",
+        "timestamp": "2026-10-13T09:43:53.361Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791884635624",
+        "timestamp": "2026-10-13T09:43:55.624Z",
+        "title": "Comms Dispatched",
+        "description": "Comms Agent generated status page, Slack, and executive updates.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791884645852",
+        "timestamp": "2026-10-13T09:44:05.852Z",
+        "title": "Operator Approved Runbook",
+        "description": "Human operator confirmed safety gate. Beginning automated execution of 4 remediation commands.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791884649859",
+        "timestamp": "2026-10-13T09:44:09.859Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:44:09.860Z"
+  },
+  {
     "id": "INC-435740",
     "title": "Microservice Memory Leak & Container OOMKilled Loop",
     "status": "RESOLVED",
@@ -65,6 +171,13 @@
       {
         "id": "evt-1791883485861",
         "timestamp": "2026-10-13T09:24:45.861Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791883499527",
+        "timestamp": "2026-10-13T09:24:59.527Z",
         "title": "System Stabilized",
         "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
         "severity": "SUCCESS"
