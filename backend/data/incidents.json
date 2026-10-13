@@ -1,0 +1,1842 @@
+[
+  {
+    "id": "INC-435740",
+    "title": "Microservice Memory Leak & Container OOMKilled Loop",
+    "status": "RESOLVED",
+    "severity": "P2",
+    "scenarioKey": "memory_leak",
+    "scenarioName": "Microservice Memory Leak & Container OOMKilled Loop",
+    "startedAt": "2026-10-13T09:23:55.740Z",
+    "detectedAt": "2026-10-13T09:23:55.740Z",
+    "mitigatedAt": "2026-10-13T09:24:45.861Z",
+    "mttdSeconds": 19,
+    "mttmSeconds": 50,
+    "affectedServices": [
+      "analytics-collector",
+      "k8s-kubelet",
+      "inventory-indexer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791883435740",
+        "timestamp": "2026-10-13T09:23:55.740Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [analytics-collector, k8s-kubelet, inventory-indexer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791883436840",
+        "timestamp": "2026-10-13T09:23:56.840Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P2 with 3 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883438510",
+        "timestamp": "2026-10-13T09:23:58.510Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791883439747",
+        "timestamp": "2026-10-13T09:23:59.747Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883441645",
+        "timestamp": "2026-10-13T09:24:01.645Z",
+        "title": "Comms Dispatched",
+        "description": "Comms Agent generated status page, Slack, and executive updates.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791883471280",
+        "timestamp": "2026-10-13T09:24:31.280Z",
+        "title": "Runbook Rejected by Operator",
+        "description": "Operator declined proposed execution. Reason: Operator override",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883485861",
+        "timestamp": "2026-10-13T09:24:45.861Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unbounded in-memory LRU cache with non-evicting hash map causing JVM old gen exhaustion, constant full GC pauses, and recurring SIGKILL OOM terminations.",
+    "archivedAt": "2026-10-13T09:24:45.861Z"
+  },
+  {
+    "id": "INC-386788",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:23:06.788Z",
+    "detectedAt": "2026-10-13T09:23:06.788Z",
+    "mitigatedAt": "2026-10-13T09:23:25.869Z",
+    "mttdSeconds": 17,
+    "mttmSeconds": 19,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": {
+      "id": "rb-db-deadlock-mitigation",
+      "title": "P1 PostgreSQL Deadlock & Pool Starvation Remediation",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "title": "Terminate Blocking DDL Process",
+          "command": "psql -h account-db-primary -U postgres -c 'SELECT pg_terminate_backend(14022);'",
+          "explanation": "Immediately releases the AccessExclusiveLock on user_sessions, unblocking all queued transactions."
+        },
+        {
+          "stepNumber": 2,
+          "title": "Drain Stale Lock Waiters",
+          "command": "psql -h account-db-primary -U postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle in transaction' AND query_start < NOW() - INTERVAL '30 seconds';\"",
+          "explanation": "Clears abandoned connections held open by timed-out client sockets."
+        },
+        {
+          "stepNumber": 3,
+          "title": "Reload PgBouncer Pool Configuration",
+          "command": "pgbouncer-cli -h pgbouncer-service -p 6432 -c 'PAUSE users_db; RELOAD; RESUME users_db;'",
+          "explanation": "Refreshes server socket pool allocations and resets client connection counters."
+        },
+        {
+          "stepNumber": 4,
+          "title": "Verify Session Table Query Performance",
+          "command": "psql -h account-db-primary -U postgres -c 'EXPLAIN ANALYZE SELECT * FROM user_sessions WHERE user_id = 9999 LIMIT 1;'",
+          "explanation": "Confirms read query latency is back to expected sub-millisecond execution."
+        }
+      ],
+      "diff": "--- pgbouncer.ini (live)\n+++ pgbouncer.ini (proposed)\n@@ -14,3 +14,3 @@\n-default_pool_size = 50\n-max_client_conn = 500\n+default_pool_size = 90\n+max_client_conn = 1000"
+    },
+    "timeline": [
+      {
+        "id": "evt-1791883386788",
+        "timestamp": "2026-10-13T09:23:06.788Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791883387952",
+        "timestamp": "2026-10-13T09:23:07.952Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883389717",
+        "timestamp": "2026-10-13T09:23:09.717Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791883391431",
+        "timestamp": "2026-10-13T09:23:11.431Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883393447",
+        "timestamp": "2026-10-13T09:23:13.447Z",
+        "title": "Comms Dispatched",
+        "description": "Comms Agent generated status page, Slack, and executive updates.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791883401866",
+        "timestamp": "2026-10-13T09:23:21.866Z",
+        "title": "Operator Approved Runbook",
+        "description": "Human operator confirmed safety gate. Beginning automated execution of 4 remediation commands.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883405869",
+        "timestamp": "2026-10-13T09:23:25.869Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:23:25.869Z"
+  },
+  {
+    "id": "INC-026453",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:17:06.453Z",
+    "detectedAt": "2026-10-13T09:17:06.453Z",
+    "mitigatedAt": "2026-10-13T09:17:07.915Z",
+    "mttdSeconds": 12,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": {
+      "id": "rb-stripe-cascade-mitigation",
+      "title": "P1 Payment Gateway Cascade Mitigation Runbook",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "title": "Enable Secondary Gateway Fallback Route",
+          "command": "kubectl patch configmap payment-routing-config --patch '{\"data\":{\"PRIMARY_GATEWAY\":\"ADYEN\",\"STRIPE_CIRCUIT_BREAKER\":\"FORCED_OPEN\"}}'",
+          "explanation": "Forces traffic to route through secondary payment provider while Stripe resolves upstream issues."
+        },
+        {
+          "stepNumber": 2,
+          "title": "Expand Payment HTTP Connection Pool Limit",
+          "command": "kubectl set env deployment/payment-service HTTP_POOL_MAX_CONNECTIONS=250 HTTP_SOCKET_TIMEOUT_MS=3000",
+          "explanation": "Increases socket pool headroom and lowers read timeout from 10s to 3s to prevent thread blocking."
+        },
+        {
+          "stepNumber": 3,
+          "title": "Scale Out Checkout API Replicas",
+          "command": "kubectl scale deployment checkout-api --replicas=8",
+          "explanation": "Absorbs queued worker backlog and restores sub-100ms request handling."
+        },
+        {
+          "stepNumber": 4,
+          "title": "Drain Dead-Letter Retry Queue",
+          "command": "curl -X POST http://payment-service.internal/admin/dlq/replay?batch_size=100",
+          "explanation": "Replays dropped transaction intents through the secondary gateway without double-charging."
+        }
+      ],
+      "diff": "--- payment-config.yaml (live)\n+++ payment-config.yaml (proposed)\n@@ -12,4 +12,4 @@\n-PRIMARY_GATEWAY: STRIPE\n-STRIPE_CIRCUIT_BREAKER: AUTOMATIC\n-HTTP_POOL_MAX_CONNECTIONS: 50\n-HTTP_SOCKET_TIMEOUT_MS: 10000\n+PRIMARY_GATEWAY: ADYEN\n+STRIPE_CIRCUIT_BREAKER: FORCED_OPEN\n+HTTP_POOL_MAX_CONNECTIONS: 250\n+HTTP_SOCKET_TIMEOUT_MS: 3000"
+    },
+    "timeline": [
+      {
+        "id": "evt-1791883026454",
+        "timestamp": "2026-10-13T09:17:06.454Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791883026535",
+        "timestamp": "2026-10-13T09:17:06.535Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883026647",
+        "timestamp": "2026-10-13T09:17:06.647Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791883026720",
+        "timestamp": "2026-10-13T09:17:06.720Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883026868",
+        "timestamp": "2026-10-13T09:17:06.868Z",
+        "title": "Comms Dispatched",
+        "description": "Comms Agent generated status page, Slack, and executive updates.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791883026871",
+        "timestamp": "2026-10-13T09:17:06.871Z",
+        "title": "Operator Approved Runbook",
+        "description": "Human operator confirmed safety gate. Beginning automated execution of 4 remediation commands.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791883027915",
+        "timestamp": "2026-10-13T09:17:07.915Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:17:07.915Z"
+  },
+  {
+    "id": "INC-026134",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:17:06.134Z",
+    "detectedAt": "2026-10-13T09:17:06.134Z",
+    "mitigatedAt": "2026-10-13T09:17:06.134Z",
+    "mttdSeconds": 12,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791883026134",
+        "timestamp": "2026-10-13T09:17:06.134Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791883026134",
+        "timestamp": "2026-10-13T09:17:06.134Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:17:06.134Z"
+  },
+  {
+    "id": "INC-026130",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:17:06.130Z",
+    "detectedAt": "2026-10-13T09:17:06.130Z",
+    "mitigatedAt": "2026-10-13T09:17:06.131Z",
+    "mttdSeconds": 19,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791883026130",
+        "timestamp": "2026-10-13T09:17:06.130Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791883026133",
+        "timestamp": "2026-10-13T09:17:06.133Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791883026134",
+        "timestamp": "2026-10-13T09:17:06.134Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:17:06.133Z"
+  },
+  {
+    "id": "INC-913740",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:15:13.740Z",
+    "detectedAt": "2026-10-13T09:15:13.740Z",
+    "mitigatedAt": "2026-10-13T09:15:15.199Z",
+    "mttdSeconds": 16,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": {
+      "id": "rb-stripe-cascade-mitigation",
+      "title": "P1 Payment Gateway Cascade Mitigation Runbook",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "title": "Enable Secondary Gateway Fallback Route",
+          "command": "kubectl patch configmap payment-routing-config --patch '{\"data\":{\"PRIMARY_GATEWAY\":\"ADYEN\",\"STRIPE_CIRCUIT_BREAKER\":\"FORCED_OPEN\"}}'",
+          "explanation": "Forces traffic to route through secondary payment provider while Stripe resolves upstream issues."
+        },
+        {
+          "stepNumber": 2,
+          "title": "Expand Payment HTTP Connection Pool Limit",
+          "command": "kubectl set env deployment/payment-service HTTP_POOL_MAX_CONNECTIONS=250 HTTP_SOCKET_TIMEOUT_MS=3000",
+          "explanation": "Increases socket pool headroom and lowers read timeout from 10s to 3s to prevent thread blocking."
+        },
+        {
+          "stepNumber": 3,
+          "title": "Scale Out Checkout API Replicas",
+          "command": "kubectl scale deployment checkout-api --replicas=8",
+          "explanation": "Absorbs queued worker backlog and restores sub-100ms request handling."
+        },
+        {
+          "stepNumber": 4,
+          "title": "Drain Dead-Letter Retry Queue",
+          "command": "curl -X POST http://payment-service.internal/admin/dlq/replay?batch_size=100",
+          "explanation": "Replays dropped transaction intents through the secondary gateway without double-charging."
+        }
+      ],
+      "diff": "--- payment-config.yaml (live)\n+++ payment-config.yaml (proposed)\n@@ -12,4 +12,4 @@\n-PRIMARY_GATEWAY: STRIPE\n-STRIPE_CIRCUIT_BREAKER: AUTOMATIC\n-HTTP_POOL_MAX_CONNECTIONS: 50\n-HTTP_SOCKET_TIMEOUT_MS: 10000\n+PRIMARY_GATEWAY: ADYEN\n+STRIPE_CIRCUIT_BREAKER: FORCED_OPEN\n+HTTP_POOL_MAX_CONNECTIONS: 250\n+HTTP_SOCKET_TIMEOUT_MS: 3000"
+    },
+    "timeline": [
+      {
+        "id": "evt-1791882913740",
+        "timestamp": "2026-10-13T09:15:13.740Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882913819",
+        "timestamp": "2026-10-13T09:15:13.819Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882913931",
+        "timestamp": "2026-10-13T09:15:13.931Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882914005",
+        "timestamp": "2026-10-13T09:15:14.005Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882914142",
+        "timestamp": "2026-10-13T09:15:14.142Z",
+        "title": "Comms Dispatched",
+        "description": "Comms Agent generated status page, Slack, and executive updates.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882914155",
+        "timestamp": "2026-10-13T09:15:14.155Z",
+        "title": "Operator Approved Runbook",
+        "description": "Human operator confirmed safety gate. Beginning automated execution of 4 remediation commands.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882915200",
+        "timestamp": "2026-10-13T09:15:15.200Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:15:15.200Z"
+  },
+  {
+    "id": "INC-913436",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:15:13.436Z",
+    "detectedAt": "2026-10-13T09:15:13.436Z",
+    "mitigatedAt": "2026-10-13T09:15:13.436Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882913436",
+        "timestamp": "2026-10-13T09:15:13.436Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882913436",
+        "timestamp": "2026-10-13T09:15:13.436Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:15:13.436Z"
+  },
+  {
+    "id": "INC-913433",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:15:13.433Z",
+    "detectedAt": "2026-10-13T09:15:13.433Z",
+    "mitigatedAt": "2026-10-13T09:15:13.435Z",
+    "mttdSeconds": 14,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882913433",
+        "timestamp": "2026-10-13T09:15:13.433Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882913435",
+        "timestamp": "2026-10-13T09:15:13.435Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882913436",
+        "timestamp": "2026-10-13T09:15:13.436Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:15:13.435Z"
+  },
+  {
+    "id": "INC-896683",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:14:56.683Z",
+    "detectedAt": "2026-10-13T09:14:56.683Z",
+    "mitigatedAt": "2026-10-13T09:14:56.687Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": {
+      "id": "rb-test-1",
+      "title": "Test Runbook",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "title": "Step 1",
+          "command": "echo test"
+        }
+      ]
+    },
+    "timeline": [
+      {
+        "id": "evt-1791882896683",
+        "timestamp": "2026-10-13T09:14:56.683Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882896686",
+        "timestamp": "2026-10-13T09:14:56.686Z",
+        "title": "Operator Approved Runbook",
+        "description": "Human operator confirmed safety gate. Beginning automated execution of 1 remediation commands.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882896687",
+        "timestamp": "2026-10-13T09:14:56.687Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:14:56.687Z"
+  },
+  {
+    "id": "INC-896380",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:14:56.380Z",
+    "detectedAt": "2026-10-13T09:14:56.380Z",
+    "mitigatedAt": "2026-10-13T09:14:56.383Z",
+    "mttdSeconds": 17,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882896380",
+        "timestamp": "2026-10-13T09:14:56.380Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882896383",
+        "timestamp": "2026-10-13T09:14:56.383Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882896385",
+        "timestamp": "2026-10-13T09:14:56.385Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882896385",
+        "timestamp": "2026-10-13T09:14:56.385Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882896444",
+        "timestamp": "2026-10-13T09:14:56.444Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882896451",
+        "timestamp": "2026-10-13T09:14:56.451Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882896546",
+        "timestamp": "2026-10-13T09:14:56.546Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882896560",
+        "timestamp": "2026-10-13T09:14:56.560Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882896620",
+        "timestamp": "2026-10-13T09:14:56.620Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882896660",
+        "timestamp": "2026-10-13T09:14:56.660Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882896680",
+        "timestamp": "2026-10-13T09:14:56.680Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882896680",
+        "timestamp": "2026-10-13T09:14:56.680Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:14:56.383Z"
+  },
+  {
+    "id": "INC-896374",
+    "title": "Microservice Memory Leak & Container OOMKilled Loop",
+    "status": "RESOLVED",
+    "severity": "P2",
+    "scenarioKey": "memory_leak",
+    "scenarioName": "Microservice Memory Leak & Container OOMKilled Loop",
+    "startedAt": "2026-10-13T09:14:56.374Z",
+    "detectedAt": "2026-10-13T09:14:56.374Z",
+    "mitigatedAt": "2026-10-13T09:14:56.376Z",
+    "mttdSeconds": 12,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "analytics-collector",
+      "k8s-kubelet",
+      "inventory-indexer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882896374",
+        "timestamp": "2026-10-13T09:14:56.374Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [analytics-collector, k8s-kubelet, inventory-indexer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882896376",
+        "timestamp": "2026-10-13T09:14:56.376Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882896377",
+        "timestamp": "2026-10-13T09:14:56.377Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unbounded in-memory LRU cache with non-evicting hash map causing JVM old gen exhaustion, constant full GC pauses, and recurring SIGKILL OOM terminations.",
+    "archivedAt": "2026-10-13T09:14:56.376Z"
+  },
+  {
+    "id": "INC-896051",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:14:56.051Z",
+    "detectedAt": "2026-10-13T09:14:56.051Z",
+    "mitigatedAt": "2026-10-13T09:14:56.051Z",
+    "mttdSeconds": 19,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882896051",
+        "timestamp": "2026-10-13T09:14:56.051Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882896051",
+        "timestamp": "2026-10-13T09:14:56.051Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:14:56.051Z"
+  },
+  {
+    "id": "INC-896048",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:14:56.048Z",
+    "detectedAt": "2026-10-13T09:14:56.048Z",
+    "mitigatedAt": "2026-10-13T09:14:56.050Z",
+    "mttdSeconds": 17,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882896048",
+        "timestamp": "2026-10-13T09:14:56.048Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882896050",
+        "timestamp": "2026-10-13T09:14:56.050Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882896051",
+        "timestamp": "2026-10-13T09:14:56.051Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:14:56.050Z"
+  },
+  {
+    "id": "INC-885929",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:14:45.929Z",
+    "detectedAt": "2026-10-13T09:14:45.929Z",
+    "mitigatedAt": "2026-10-13T09:14:45.933Z",
+    "mttdSeconds": 15,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": {
+      "id": "rb-test-1",
+      "title": "Test Runbook",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "title": "Step 1",
+          "command": "echo test"
+        }
+      ]
+    },
+    "timeline": [
+      {
+        "id": "evt-1791882885929",
+        "timestamp": "2026-10-13T09:14:45.929Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882885932",
+        "timestamp": "2026-10-13T09:14:45.932Z",
+        "title": "Operator Approved Runbook",
+        "description": "Human operator confirmed safety gate. Beginning automated execution of 1 remediation commands.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882885933",
+        "timestamp": "2026-10-13T09:14:45.933Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:14:45.933Z"
+  },
+  {
+    "id": "INC-885623",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:14:45.623Z",
+    "detectedAt": "2026-10-13T09:14:45.623Z",
+    "mitigatedAt": "2026-10-13T09:14:45.626Z",
+    "mttdSeconds": 15,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882885623",
+        "timestamp": "2026-10-13T09:14:45.623Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882885626",
+        "timestamp": "2026-10-13T09:14:45.626Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882885628",
+        "timestamp": "2026-10-13T09:14:45.628Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882885628",
+        "timestamp": "2026-10-13T09:14:45.628Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882885687",
+        "timestamp": "2026-10-13T09:14:45.687Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882885693",
+        "timestamp": "2026-10-13T09:14:45.693Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882885789",
+        "timestamp": "2026-10-13T09:14:45.789Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882885802",
+        "timestamp": "2026-10-13T09:14:45.802Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882885863",
+        "timestamp": "2026-10-13T09:14:45.863Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882885904",
+        "timestamp": "2026-10-13T09:14:45.904Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882885927",
+        "timestamp": "2026-10-13T09:14:45.927Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882885927",
+        "timestamp": "2026-10-13T09:14:45.927Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:14:45.626Z"
+  },
+  {
+    "id": "INC-885617",
+    "title": "Microservice Memory Leak & Container OOMKilled Loop",
+    "status": "RESOLVED",
+    "severity": "P2",
+    "scenarioKey": "memory_leak",
+    "scenarioName": "Microservice Memory Leak & Container OOMKilled Loop",
+    "startedAt": "2026-10-13T09:14:45.617Z",
+    "detectedAt": "2026-10-13T09:14:45.617Z",
+    "mitigatedAt": "2026-10-13T09:14:45.620Z",
+    "mttdSeconds": 19,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "analytics-collector",
+      "k8s-kubelet",
+      "inventory-indexer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882885617",
+        "timestamp": "2026-10-13T09:14:45.617Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [analytics-collector, k8s-kubelet, inventory-indexer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882885620",
+        "timestamp": "2026-10-13T09:14:45.620Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882885620",
+        "timestamp": "2026-10-13T09:14:45.620Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unbounded in-memory LRU cache with non-evicting hash map causing JVM old gen exhaustion, constant full GC pauses, and recurring SIGKILL OOM terminations.",
+    "archivedAt": "2026-10-13T09:14:45.620Z"
+  },
+  {
+    "id": "INC-885312",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:14:45.312Z",
+    "detectedAt": "2026-10-13T09:14:45.312Z",
+    "mitigatedAt": "2026-10-13T09:14:45.312Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882885312",
+        "timestamp": "2026-10-13T09:14:45.312Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882885312",
+        "timestamp": "2026-10-13T09:14:45.312Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:14:45.312Z"
+  },
+  {
+    "id": "INC-885310",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:14:45.310Z",
+    "detectedAt": "2026-10-13T09:14:45.310Z",
+    "mitigatedAt": "2026-10-13T09:14:45.312Z",
+    "mttdSeconds": 18,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882885310",
+        "timestamp": "2026-10-13T09:14:45.310Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882885312",
+        "timestamp": "2026-10-13T09:14:45.312Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882885312",
+        "timestamp": "2026-10-13T09:14:45.312Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:14:45.312Z"
+  },
+  {
+    "id": "INC-482984",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:08:02.984Z",
+    "detectedAt": "2026-10-13T09:08:02.984Z",
+    "mitigatedAt": "2026-10-13T09:08:02.987Z",
+    "mttdSeconds": 12,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": {
+      "id": "rb-test-1",
+      "title": "Test Runbook",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "title": "Step 1",
+          "command": "echo test"
+        }
+      ]
+    },
+    "timeline": [
+      {
+        "id": "evt-1791882482984",
+        "timestamp": "2026-10-13T09:08:02.984Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882482986",
+        "timestamp": "2026-10-13T09:08:02.986Z",
+        "title": "Operator Approved Runbook",
+        "description": "Human operator confirmed safety gate. Beginning automated execution of 1 remediation commands.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882482987",
+        "timestamp": "2026-10-13T09:08:02.987Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:08:02.987Z"
+  },
+  {
+    "id": "INC-482659",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:08:02.659Z",
+    "detectedAt": "2026-10-13T09:08:02.659Z",
+    "mitigatedAt": "2026-10-13T09:08:02.663Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882482659",
+        "timestamp": "2026-10-13T09:08:02.659Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882482663",
+        "timestamp": "2026-10-13T09:08:02.663Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882482666",
+        "timestamp": "2026-10-13T09:08:02.666Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882482666",
+        "timestamp": "2026-10-13T09:08:02.666Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882482730",
+        "timestamp": "2026-10-13T09:08:02.730Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882482737",
+        "timestamp": "2026-10-13T09:08:02.737Z",
+        "title": "Triage Complete",
+        "description": "Triage Agent classified incident as P1 with 4 affected services.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882482838",
+        "timestamp": "2026-10-13T09:08:02.838Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882482853",
+        "timestamp": "2026-10-13T09:08:02.853Z",
+        "title": "Root Cause Isolated",
+        "description": "Investigator Agent identified exact failure vector and stack trace origin.",
+        "severity": "INFO"
+      },
+      {
+        "id": "evt-1791882482914",
+        "timestamp": "2026-10-13T09:08:02.914Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882482956",
+        "timestamp": "2026-10-13T09:08:02.956Z",
+        "title": "Runbook Proposed",
+        "description": "Remediation Agent prepared 4-step execution runbook. Safety gate active.",
+        "severity": "WARN"
+      },
+      {
+        "id": "evt-1791882482981",
+        "timestamp": "2026-10-13T09:08:02.981Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882482982",
+        "timestamp": "2026-10-13T09:08:02.982Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:08:02.663Z"
+  },
+  {
+    "id": "INC-482652",
+    "title": "Microservice Memory Leak & Container OOMKilled Loop",
+    "status": "RESOLVED",
+    "severity": "P2",
+    "scenarioKey": "memory_leak",
+    "scenarioName": "Microservice Memory Leak & Container OOMKilled Loop",
+    "startedAt": "2026-10-13T09:08:02.652Z",
+    "detectedAt": "2026-10-13T09:08:02.652Z",
+    "mitigatedAt": "2026-10-13T09:08:02.655Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "analytics-collector",
+      "k8s-kubelet",
+      "inventory-indexer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882482652",
+        "timestamp": "2026-10-13T09:08:02.652Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [analytics-collector, k8s-kubelet, inventory-indexer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882482655",
+        "timestamp": "2026-10-13T09:08:02.655Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882482656",
+        "timestamp": "2026-10-13T09:08:02.656Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unbounded in-memory LRU cache with non-evicting hash map causing JVM old gen exhaustion, constant full GC pauses, and recurring SIGKILL OOM terminations.",
+    "archivedAt": "2026-10-13T09:08:02.655Z"
+  },
+  {
+    "id": "INC-482327",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:08:02.327Z",
+    "detectedAt": "2026-10-13T09:08:02.327Z",
+    "mitigatedAt": "2026-10-13T09:08:02.327Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882482327",
+        "timestamp": "2026-10-13T09:08:02.327Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882482327",
+        "timestamp": "2026-10-13T09:08:02.327Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:08:02.327Z"
+  },
+  {
+    "id": "INC-482324",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:08:02.324Z",
+    "detectedAt": "2026-10-13T09:08:02.324Z",
+    "mitigatedAt": "2026-10-13T09:08:02.326Z",
+    "mttdSeconds": 14,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882482324",
+        "timestamp": "2026-10-13T09:08:02.324Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882482326",
+        "timestamp": "2026-10-13T09:08:02.326Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882482326",
+        "timestamp": "2026-10-13T09:08:02.326Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:08:02.326Z"
+  },
+  {
+    "id": "INC-463347",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:07:43.347Z",
+    "detectedAt": "2026-10-13T09:07:43.347Z",
+    "mitigatedAt": "2026-10-13T09:07:43.349Z",
+    "mttdSeconds": 14,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882463347",
+        "timestamp": "2026-10-13T09:07:43.347Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882463349",
+        "timestamp": "2026-10-13T09:07:43.349Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:07:43.349Z"
+  },
+  {
+    "id": "INC-463341",
+    "title": "Microservice Memory Leak & Container OOMKilled Loop",
+    "status": "RESOLVED",
+    "severity": "P2",
+    "scenarioKey": "memory_leak",
+    "scenarioName": "Microservice Memory Leak & Container OOMKilled Loop",
+    "startedAt": "2026-10-13T09:07:43.341Z",
+    "detectedAt": "2026-10-13T09:07:43.341Z",
+    "mitigatedAt": "2026-10-13T09:07:43.343Z",
+    "mttdSeconds": 18,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "analytics-collector",
+      "k8s-kubelet",
+      "inventory-indexer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882463341",
+        "timestamp": "2026-10-13T09:07:43.341Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [analytics-collector, k8s-kubelet, inventory-indexer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882463343",
+        "timestamp": "2026-10-13T09:07:43.343Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882463344",
+        "timestamp": "2026-10-13T09:07:43.344Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unbounded in-memory LRU cache with non-evicting hash map causing JVM old gen exhaustion, constant full GC pauses, and recurring SIGKILL OOM terminations.",
+    "archivedAt": "2026-10-13T09:07:43.344Z"
+  },
+  {
+    "id": "INC-463039",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:07:43.039Z",
+    "detectedAt": "2026-10-13T09:07:43.039Z",
+    "mitigatedAt": "2026-10-13T09:07:43.040Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882463039",
+        "timestamp": "2026-10-13T09:07:43.039Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882463040",
+        "timestamp": "2026-10-13T09:07:43.040Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:07:43.040Z"
+  },
+  {
+    "id": "INC-463037",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:07:43.037Z",
+    "detectedAt": "2026-10-13T09:07:43.037Z",
+    "mitigatedAt": "2026-10-13T09:07:43.038Z",
+    "mttdSeconds": 16,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882463037",
+        "timestamp": "2026-10-13T09:07:43.037Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882463038",
+        "timestamp": "2026-10-13T09:07:43.038Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882463039",
+        "timestamp": "2026-10-13T09:07:43.039Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:07:43.038Z"
+  },
+  {
+    "id": "INC-408927",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:06:48.927Z",
+    "detectedAt": "2026-10-13T09:06:48.927Z",
+    "mitigatedAt": "2026-10-13T09:06:48.930Z",
+    "mttdSeconds": 17,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882408927",
+        "timestamp": "2026-10-13T09:06:48.927Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882408930",
+        "timestamp": "2026-10-13T09:06:48.930Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:06:48.930Z"
+  },
+  {
+    "id": "INC-408921",
+    "title": "Microservice Memory Leak & Container OOMKilled Loop",
+    "status": "RESOLVED",
+    "severity": "P2",
+    "scenarioKey": "memory_leak",
+    "scenarioName": "Microservice Memory Leak & Container OOMKilled Loop",
+    "startedAt": "2026-10-13T09:06:48.921Z",
+    "detectedAt": "2026-10-13T09:06:48.921Z",
+    "mitigatedAt": "2026-10-13T09:06:48.924Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "analytics-collector",
+      "k8s-kubelet",
+      "inventory-indexer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882408921",
+        "timestamp": "2026-10-13T09:06:48.921Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [analytics-collector, k8s-kubelet, inventory-indexer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882408924",
+        "timestamp": "2026-10-13T09:06:48.924Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882408924",
+        "timestamp": "2026-10-13T09:06:48.924Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unbounded in-memory LRU cache with non-evicting hash map causing JVM old gen exhaustion, constant full GC pauses, and recurring SIGKILL OOM terminations.",
+    "archivedAt": "2026-10-13T09:06:48.924Z"
+  },
+  {
+    "id": "INC-408612",
+    "title": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "db_deadlock",
+    "scenarioName": "PostgreSQL Connection Pool Exhaustion & Deadlock",
+    "startedAt": "2026-10-13T09:06:48.612Z",
+    "detectedAt": "2026-10-13T09:06:48.612Z",
+    "mitigatedAt": "2026-10-13T09:06:48.612Z",
+    "mttdSeconds": 15,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "auth-service",
+      "account-db-primary",
+      "user-session-store",
+      "pgbouncer"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882408612",
+        "timestamp": "2026-10-13T09:06:48.612Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [auth-service, account-db-primary, user-session-store, pgbouncer]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882408612",
+        "timestamp": "2026-10-13T09:06:48.612Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Unindexed migration locking user_sessions table causing mutual exclusive lock contention, transaction deadlocks, and pool saturation.",
+    "archivedAt": "2026-10-13T09:06:48.612Z"
+  },
+  {
+    "id": "INC-408609",
+    "title": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "status": "RESOLVED",
+    "severity": "P1",
+    "scenarioKey": "payment_cascade",
+    "scenarioName": "Payment Gateway Timeout Cascades (Stripe API 504s)",
+    "startedAt": "2026-10-13T09:06:48.609Z",
+    "detectedAt": "2026-10-13T09:06:48.609Z",
+    "mitigatedAt": "2026-10-13T09:06:48.611Z",
+    "mttdSeconds": 13,
+    "mttmSeconds": 1,
+    "affectedServices": [
+      "payment-service",
+      "checkout-api",
+      "order-worker",
+      "ingress-gateway"
+    ],
+    "errorRate": 0.05,
+    "latencyP99": 140,
+    "activeRunbook": null,
+    "timeline": [
+      {
+        "id": "evt-1791882408609",
+        "timestamp": "2026-10-13T09:06:48.609Z",
+        "title": "Anomaly Detected",
+        "description": "Error rate spiked across [payment-service, checkout-api, order-worker, ingress-gateway]. Automated alerting threshold breached.",
+        "severity": "ERROR"
+      },
+      {
+        "id": "evt-1791882408611",
+        "timestamp": "2026-10-13T09:06:48.611Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      },
+      {
+        "id": "evt-1791882408612",
+        "timestamp": "2026-10-13T09:06:48.612Z",
+        "title": "System Stabilized",
+        "description": "All telemetry parameters returned to steady-state baselines. Health probes 100% green.",
+        "severity": "SUCCESS"
+      }
+    ],
+    "postMortem": null,
+    "summary": "Third-party Stripe API upstream latency surge causing connection pool exhaustion, thread starvation, and cascading 504 Gateway Timeouts across checkout services.",
+    "archivedAt": "2026-10-13T09:06:48.611Z"
+  }
+]
